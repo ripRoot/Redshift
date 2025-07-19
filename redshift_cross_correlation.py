@@ -33,22 +33,14 @@ def main():
     rng = np.random.default_rng(42)
     observed_flux += 0.05 * rng.normal(size=wl.size)
 
-    # a plot spectrum function.
-    plot_spectrum(wl, observed_flux)
-
-    # Mark the *rest* wavelengths (dotted) and observed wavelengths (dash‑dot)
-    for w_rest, w_obs in zip(rest_lines, obs_lines):
-        plt.axvline(w_rest, linestyle=':', alpha=0.4)        #plt.axvline(w_obs,  linestyle='-.', alpha=0.4)
-
-        
     # Normalized both observed_flux and the template.
     observed_flux_normalized = normalize_spectrum(observed_flux)
     normalized_flux = normalize_spectrum(template_flux)
 
 
 
-    z_min = np.min(wl) / np.min(rest_lines) - 1 # Take the minimum and maximum shift that it could possibly be
-    z_max = np.max(wl) / np.max(rest_lines) - 1
+    z_min = 0 #np.min(wl) / np.min(rest_lines) - 1 # Take the minimum and maximum shift that it could possibly be
+    z_max = 10 #np.max(wl) / np.max(rest_lines) - 1
     initial_pass = (z_min, z_max)
 
 
@@ -57,13 +49,7 @@ def main():
     print(f"The best redshift I found was {best_z}. The real redshift is {z_true}")
 
     print(f"My percent error is {abs((best_z - z_true)/z_true * 100)}.")
-
-    plt.xlabel("Wavelength [Å]")
-    plt.ylabel("Flux [arb. units]")
-    plt.title("You need the template (reference) to measure redshift!")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+z_min =  0 #np.min(wl) / np.min(rest_lines) - 1 # Take the minimum and maximum sh
 
 
 def gaussian(w, w0, amp, sigma=3.0):
