@@ -1,156 +1,170 @@
 import numpy as np
-import random
-import matplotlib.pyplot as plt
-from scipy.signal import correlate
-from scipy.interpolate import interp1d
 from scipy.signal import medfilt
-
-
-def main():    
-    rest_lines = np.array([5000.0, 6000.0, 6500.0])   # H‑beta, [O III], H‑alpha-ish placeholders
-    amps       = np.array([1.0,   0.8,   0.6])        # relative line strengths.
-    wl = np.linspace(4800, 9000, 7000)
-    #Zeros_like returns an array of zeros 
-    # with the same shape and size as a
-
-    # Build rest‑frame template spectrum
-    template_flux = np.zeros_like(wl)
-    for w0, amp in zip(rest_lines, amps):
-        template_flux += gaussian(wl, w0, amp)
-
-    # ------------------------------------
-    # Apply a redshift to generate “data”
-    # ------------------------------------
-    z_true = np.random.uniform(0.0, 0.37)              # the unknown redshift we’ll try to recover
-    obs_lines = (1.0 + z_true) * rest_lines
-
-    observed_flux = np.zeros_like(wl)
-    for w0, amp in zip(obs_lines, amps):
-        observed_flux += gaussian(wl, w0, amp)
-
-
-    # Add a touch of noise so it looks more realistic
-    rng = np.random.default_rng(42)
-    observed_flux += 0.05 * rng.normal(size=wl.size)
-
-    # Normalized both observed_flux and the template.
-    observed_flux_normalized = normalize_spectrum(observed_flux)
-    normalized_flux = normalize_spectrum(template_flux)
-
-
-
-    z_min = 0 #np.min(wl) / np.min(rest_lines) - 1 # Take the minimum and maximum shift that it could possibly be
-    z_max = 10 #np.max(wl) / np.max(rest_lines) - 1
-    initial_pass = (z_min, z_max)
-
-
-    best_z, scores, redshifts_final = calculate_redshift_iterative(normalized_flux, observed_flux_normalized, wl, initial_pass)
-
-    print(f"The best redshift I found was {best_z}. The real redshift is {z_true}")
-
-    print(f"My percent error is {abs((best_z - z_true)/z_true * 100)}.")
-z_min =  0 #np.min(wl) / np.min(rest_lines) - 1 # Take the minimum and maximum sh
-
+from scipy.interpolate import interp1d
+import matplotlib.pyplot as plt
 
 def gaussian(w, w0, amp, sigma=3.0):
     """
-    Simple Gaussian line profile
+        Simple Gaussian line profile.
+        w0 = center wavelength.
+        amp = peak intensity.
+        sigma = width of the Gaussian.
     """
-    return amp * np.exp(-(w - w0)**2 / (2.0 * sigma**2))
+    return amp * np.exp(-(w - w0) ** 2 / (2.0 * sigma ** 2))
 
-
-
-def plot_spectrum(wl, flux):
-# ------------------------------------
-# Plot: template vs. observed spectrum
-# ------------------------------------
-    plt.figure(figsize=(10, 4))
-    plt.plot(wl, flux, label=f"Observed spectrum (unknown $z$)", linewidth=1.2)
-    
-
-    
 
 def normalize_spectrum(flux):
     '''
         GOAL: Remove the continuum (the smooth background light) to emphasize
-        absorption & emission lines... (Not really required for this simulated data, but I read it
-        was good to consider when calculating redshift of real spectra...)
+        absorption & emission lines.
+
+        This uses a median filter to estimate the general 'shape' or hills of the spectrum,
+        subtracts that from the original flux to isolate sharp features,
+        then normalizes to zero-mean, unit-variance.
     '''
-
-    #
     N = len(flux)
-
-    kernel_fraction = 0.01 # 1% of the total length.. 
-    
-    # since our simulated len of flux is 7000 it will take the median of 70 points.
+    kernel_fraction = 0.01  # 1% of the data length
     kernel_size = int(N * kernel_fraction)
 
-    # Make sure that the window size is odd, because without it no middle
-    if N % 2 == 0:
-        kernel_size += 1
+    if kernel_size % 2 == 0:
+        kernel_size += 1  # Make sure it's odd to ensure a middle point
 
-    # Traces the curve, or 'shape' of the Spectrum... focusing on smoothing the hills instead of the peaks.
-    continum = medfilt(flux, kernel_size)
+    continuum = medfilt(flux, kernel_size)
+    flux_no_continuum = flux - continuum
 
-    # Subtracting the continuum leaves me with just the sharp lines. 
-    flux_no_continum = flux - continum
-    return (flux_no_continum - np.mean(flux_no_continum)) / np.std(flux_no_continum)
+    return (flux_no_continuum - np.mean(flux_no_continuum)) / np.std(flux_no_continuum)
 
 
-
-
-def shift_and_interpolate(wl, flux_temp, z):
+def log_wavelength_grid(wl_min, wl_max, num_points):
     '''
-        This function shifts the wavelength by an assumed redshift value and then plots the flux values based on the shift.
-        My interpolate function maps any wavelength back to a flux value based on the template.
+        Creates a logarithmically spaced wavelength grid.
+        This is essential for detecting redshift via shifting in log-wavelength space.
     '''
-    shifted_wl = wl * (1 + z)
-    interp_func = interp1d(shifted_wl, flux_temp, bounds_error=False, fill_value=0)
-    return interp_func(wl)
+    return np.linspace(np.log(wl_min), np.log(wl_max), num_points)
 
 
-def compute_correlate(observed, shifted_temp):
+def resample_to_log_wavelength(wl_linear, flux_linear, log_wl_grid):
     '''
-        Correlation. Described as below. the 'same' tag means that the output is the same as my input signal. Correlation is now centered. 
-        returns the highest correlation point in the array.
+        Interpolates a linear wavelength spectrum onto a log-wavelength grid.
     '''
-    return np.max(correlate(observed, shifted_temp, mode='same'))
+    interp_func = interp1d(np.log(wl_linear), flux_linear, bounds_error=False, fill_value=0)
+    return interp_func(log_wl_grid)
 
-def calculate_redshift(assumed_redshifts, normalized_flux, observed_flux_normalized, wl):
+
+def build_template_on_linear_grid(wl_linear, rest_lines, amps):
     '''
-        Takes every z value in the assumed redshifts, shifts the template with the rest_lines and gaussian to then cross correlate it with the observed spectrum. 
-        It returns the scores (which is the cross correlation) and the redahift that has the highest cross correlation.
+        Constructs a template spectrum in LINEAR wavelength space using Gaussian lines.
+        Adds weak continuum and "ghost" lines at high redshifts to assist detection.
     '''
-    scores = []
-    for z in assumed_redshifts:
-        shifted_temp = shift_and_interpolate(wl, normalized_flux, z)
-        shifted_temp = normalize_spectrum(shifted_temp)
-        score = compute_correlate(observed_flux_normalized, shifted_temp)    
-        scores.append(score)
+    template_flux = 0.02 + np.zeros_like(wl_linear)  # Weak continuum baseline
+
+    for w0, amp in zip(rest_lines, amps):
+        template_flux += gaussian(wl_linear, w0, amp)
+
+        # Extra "ghost" lines at high-z positions to help prevent detection failure
+        for z_pad in [5, 10, 15]:
+            template_flux += gaussian(wl_linear, w0 * (1 + z_pad), amp * 0.5)
+
+    return template_flux
+
+
+def build_observed_flux(wl_linear, rest_lines, amps, z_true):
+    '''
+        Applies the unknown "true" redshift to generate the observed flux (our "data").
+        Adds a weak continuum to simulate realistic conditions.
+    '''
+    shifted_lines = rest_lines * (1 + z_true)
+    observed_flux = 0.02 + np.zeros_like(wl_linear)
     
-    return scores, assumed_redshifts[np.argmax(scores)]
-
-def calculate_redshift_iterative(normalized_flux, observed_flux_normalized, wl, initial_pass, passes=3):
-    '''
-        Iteratively narrows down the best redshift.
-    '''    
-    # unpack the tuple
-    z_min, z_max = initial_pass
-    best_z = np.inf
-
+    for w0, amp in zip(shifted_lines, amps):
+        observed_flux += gaussian(wl_linear, w0, amp)
     
-    for i in range(passes):
-        num_steps = 1000
-        assumed_redshifts = np.linspace(z_min, z_max, num_steps)
-        
-        scores, best_z = calculate_redshift(assumed_redshifts, normalized_flux, observed_flux_normalized, wl)
+    return observed_flux
 
-        narrow = (z_max - z_min)/10
+
+def redshift_estimate_for_z_true(z_true, wl_min=4800, wl_max=80000, num_points=1000):
+    '''
+        Attempts to recover the unknown redshift using cross-correlation over log-wavelength space.
+        Uses shifting of the template spectrum to find the best alignment.
+    '''
+    z_max_detectable = 10  # Ensure our wavelength range can handle maximum expected redshift
+    wl_max = max(wl_max, wl_min * (1 + z_max_detectable) * 1.1)
+
+    rest_lines = np.array([5000.0, 6000.0, 6500.0])  # H‑beta, [O III], H‑alpha-ish placeholders
+    amps = np.array([1.0, 0.8, 0.6])                 # Relative line strengths
+
+    wl_linear = np.linspace(wl_min, wl_max, num_points)
+
+    # Build clean template & observed flux (with noise)
+    template_flux_linear = build_template_on_linear_grid(wl_linear, rest_lines, amps)
+    observed_flux_linear = build_observed_flux(wl_linear, rest_lines, amps, z_true)
+
+    rng = np.random.default_rng(42)
+    observed_flux_linear += 0.05 * rng.normal(size=observed_flux_linear.size)
+
+    # Project both onto log-wavelength grid
+    log_wl_grid = log_wavelength_grid(wl_min, wl_max, num_points)
+    template_flux_log = resample_to_log_wavelength(wl_linear, template_flux_linear, log_wl_grid)
+    observed_flux_log = resample_to_log_wavelength(wl_linear, observed_flux_linear, log_wl_grid)
+
+    # Normalize spectra for proper comparison
+    template_norm = normalize_spectrum(template_flux_log)
+    observed_norm = normalize_spectrum(observed_flux_log)
+
+    delta_log_wl = log_wl_grid[1] - log_wl_grid[0]
+
+    z_min, z_max = 0, 10
+    best_z = None
+
+    # 5 iterations of narrowing down best shift
+    for iteration in range(5):
+        max_shift = int(np.log(1 + z_max) / delta_log_wl)
+        min_shift = int(np.log(1 + z_min) / delta_log_wl)
+        shifts = np.arange(min_shift, max_shift + 1)
+
+        scores = []
+
+        # Pad template to prevent edge effects during shifting
+        padded_template = np.pad(template_norm, pad_width=template_norm.size, mode='constant', constant_values=0)
+
+        for shift in shifts:
+            shifted_template = np.roll(padded_template, shift)[template_norm.size : 2 * template_norm.size]
+            score = np.sum(observed_norm * shifted_template)  # Simple dot product as correlation measure
+            scores.append(score)
+
+        best_shift = shifts[np.argmax(scores)]
+        best_z = np.exp(best_shift * delta_log_wl) - 1
+
+        # Narrow search range for next iteration
+        safety_margin = 0.1
+        narrow = max((z_max - z_min) / 10, safety_margin)
         z_min = max(best_z - narrow, 0)
         z_max = best_z + narrow
+
+    error_percent = abs((best_z - z_true) / z_true) * 100 if z_true != 0 else 0
     
-        print(f"Pass {i+1}: best_z = {best_z} in range {z_min} to {z_max}")
+    plt.plot(wl_linear, observed_norm)
+    plt.plot(wl_linear, template_norm)
+    plt.show()
 
-    return best_z, scores, assumed_redshifts
+'''
+def main():
+    rng = np.random.default_rng()
+    #error_p = []
+    #disti = np.linspace(0, 1000, 10)
+    
+    z_true = rng.uniform(0.0, 10.0)
+    best_z, error_percent,obs, temp = redshift_estimate_for_z_true(z_true)
+    print(f"Run {i+1}: True z = {z_true:.5f}, Estimated z = {best_z:.5f}, Percent error = {error_percent:.2f}%")
 
-main()
+    plt.plot()
+    #error_p.append(error_percent)
+    #plt.plot(disti, error_p)
+    
+
+
+if __name__ == "__main__":
+    main()
+'''
+rng = np.random.default_rng()
+redshift_estimate_for_z_true(rng.uniform(0.0, 10.0))
