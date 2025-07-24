@@ -3,7 +3,7 @@
 Builds emission-line templates from given rest wavelengths and estimated line amplitudes. It does this through resampling spectra on a logarithmic wavelength grid for efficient multiplicative redshift handling, and uses normalized cross-correlation to estimate a best-fit redshift. 
 
 Clone the repo and install dependencies:
-<pre> git clone [githu](https://github.com/ripRoot/Redshift.git) 
+<pre>1git clone [githu](https://github.com/ripRoot/Redshift.git) 
 cd Redshift
 pip install -r requirements.txt </pre>
 
