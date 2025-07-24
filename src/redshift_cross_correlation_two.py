@@ -119,7 +119,7 @@ def redshift_estimate_for_z(z_true, wl_min=4800, wl_max=100000, num_points=20000
     template_norm = normalize_spectrum(template_flux_log)
     observed_norm = normalize_spectrum(observed_flux_log)
 
-    # Calculate the step size. 
+    # Calculate the step size to find best shift
     delta_log_wl = log_wl_grid[1] - log_wl_grid[0]
 
     
@@ -129,7 +129,7 @@ def redshift_estimate_for_z(z_true, wl_min=4800, wl_max=100000, num_points=20000
 
     for iteration in range(5):
         # Converts z_min and z_max to shifts in log space
-        # Explain WHY I do this...
+        
         max_shift = int(np.log(1 + z_max) / delta_log_wl)
         min_shift = int(np.log(1 + z_min) / delta_log_wl)
 
@@ -140,6 +140,15 @@ def redshift_estimate_for_z(z_true, wl_min=4800, wl_max=100000, num_points=20000
             Create a range of shifts based on correlation length.
             Then, valid selects the shifts that correpsond to the current window
             Then filter the correlation to only include valid shifts
+
+            (Multiplicative stretch to addition) because logarithms rule
+            wl_obs = wl_rest(1+z)
+            log(wl_obs)= log(wl_rest) + log(1+z)
+            
+
+            log(1+z) = best_shift x delta_log_wl
+            1 + z = exp(best_shift x delta_log_wl)
+            z = exp(best_shift x delta_log_wl) + 1
         '''
         # All possible lags. Even the negative (where it is not possible in cosmological redshift)
         # because the arrays need to be the same length.
@@ -147,14 +156,14 @@ def redshift_estimate_for_z(z_true, wl_min=4800, wl_max=100000, num_points=20000
 
         # First pass: every shift including above 0 and every shift including 10.
         valid = (shift_range >= min_shift) & (shift_range <= max_shift)
-
+        
         # indicies where valid is true to filter correlation
         corr = corr[valid]
 
-        # Did this to get the best shift
+        #get only the 'true' possible shifts 
         shift_range = shift_range[valid]
 
-        # Find the best shift (MAX CORRELATION) (Didnt really change from simulation one)
+        # Find the best shift (MAX CORRELATION) 
         best_idx = np.argmax(corr)
         best_shift = shift_range[best_idx]
 
@@ -198,7 +207,7 @@ def main():
     axs[0].grid(True)
 
     # Histogram of percent errors
-    axs[1].hist(error_percentages, bins=20, range=(0, np.max(error_percentages)), edgecolor='black')
+    axs[1].hist(error_percentages, bins=1000, range=(0, np.max(error_percentages)), edgecolor='black')
     axs[1].set_xlabel('Percent Error')
     axs[1].set_ylabel('Number of Runs')
     axs[1].set_title('Distribution of Percent Errors')
