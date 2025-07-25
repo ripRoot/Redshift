@@ -79,7 +79,7 @@ def build_observed_flux(wl_linear, rest_lines, amps, z_true):
     observed_flux += 0.05 * rng.normal(size=observed_flux.size) # add noise
     return observed_flux
 
-def get_amps(flux, wavelength, rest_lines, window=50.0):
+def get_amps(flux, wavelength, rest_lines, window=100.0):
     '''
     Estimate amplitudes of spectral lines in the flux data.
     (looks between 5+ or - wavelengths) VERY RISKY. CHANGE LATER.
