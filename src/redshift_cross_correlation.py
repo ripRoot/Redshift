@@ -79,31 +79,8 @@ def build_observed_flux(wl_linear, rest_lines, amps, z_true):
     observed_flux += 0.05 * rng.normal(size=observed_flux.size) # add noise
     return observed_flux
 
-def get_amps(flux, wavelength, rest_lines, window=100.0):
-    '''
-    Estimate amplitudes of spectral lines in the flux data.
-    (looks between 5+ or - wavelengths) VERY RISKY. CHANGE LATER.
-    I only just now realized this, but if the emmission spike (?) 
-    isn't between +- 5 of the restline then the amplitude is inncorrect... ugh
-    '''
-    amps = []
 
-    for line in rest_lines:
-        # Select region around each line. Picks a chunk to look at 
-        mask = (wavelength >= (line - window)) & (wavelength <= (line + window))
-        
-        f_segment = flux[mask]
-
-        if len(f_segment) == 0:
-            amps.append(0.0)  # Line not found in window
-        else:
-            # Emission: Find how high it peaks
-            local_amp = np.max(f_segment) - np.median(f_segment)
-            amps.append(local_amp)
-
-    return np.array(amps)
-
-def redshift_estimate_for_z(flux, wl, rest_lines, wl_min, wl_max, num_points=20000):
+def redshift_estimate_for_z(flux, wl, templates, z_min=0, z_max=10, num_points=20000, iterations=5):
     """ 
         Estimate the redshift for a given true redshift value.
         wl_min: Minimum wavelength in Angstroms.
@@ -124,69 +101,63 @@ def redshift_estimate_for_z(flux, wl, rest_lines, wl_min, wl_max, num_points=200
         Now it can handle larger redshifts :)) (because it's less costly to calculate)
         (and it's really fast I don't have to worry about it running slow on my little laptop)
     """
-    # Create a wavelength grid
-    wl_linear = wl
+    # Convert observed spectrum to log space
+    log_wl_grid = log_wavelength_grid(np.min(wl), np.max(wl), num_points)
+    observed_flux_log = resample_to_log_wavelength(wl, flux, log_wl_grid)
 
-    linear_norm = normalize_spectrum(flux)
-    amps = get_amps(linear_norm, wl, rest_lines)
-    # Build template and observed flux
-    template_flux_linear = build_template(wl_linear, rest_lines, amps)
-    observed_flux_linear = flux
+    # Don't normalize — instead subtract mean to remove DC offset for correlation
+    observed_flux_log -= np.mean(observed_flux_log)
 
-    # Convert to logarithmic wavelength grid-- Preparing for correlation
-    log_wl_grid = log_wavelength_grid(wl_min, wl_max, num_points) 
-    template_flux_log = resample_to_log_wavelength(wl_linear, template_flux_linear, log_wl_grid)
-    observed_flux_log = resample_to_log_wavelength(wl_linear, observed_flux_linear, log_wl_grid)
-
-    # Normalize the spectra
-    template_norm = normalize_spectrum(template_flux_log)
-    observed_norm = normalize_spectrum(observed_flux_log)
-
-    # Calculate the step size. 
     delta_log_wl = log_wl_grid[1] - log_wl_grid[0]
 
-    #Explain why THIS is max redshift and not TRUE redshift
-    z_min = 0
-    z_max = 10
-    best_z = np.inf
+    best_corr_value = -np.inf
+    best_z = None
+    best_template_index = -1
 
-    for iteration in range(5):
-        # Converts z_min and z_max to shifts in log space
-        max_shift = int(np.log(1 + z_max) / delta_log_wl)
-        min_shift = int(np.log(1 + z_min) / delta_log_wl)
+    for idx, (template_wl, template_flux) in enumerate(templates):
+        # Resample the template to the same log grid
+        template_flux_log = resample_to_log_wavelength(template_wl, template_flux, log_wl_grid)
+        template_flux_log -= np.mean(template_flux_log)  # Remove DC offset
 
-        #Switched to scipy's FFT-based correltion for speed. 
-        corr = correlate(observed_norm, template_norm, mode='full')
+        zmin = z_min
+        zmax = z_max
 
-        '''
-            Create a range of shifts based on correlation length.
-            Then, valid selects the shifts that correpsond to the current window
-            Then filter the correlation to only include valid shifts
-        '''
-        # all lags from 0 to pos because redshift 
-        shift_range = np.arange(-len(template_norm) + 1, len(template_norm))
-        valid = (shift_range >= min_shift) & (shift_range <= max_shift)
-        # indicies where valid is true to filter correlation
-        corr = corr[valid]
+        for _ in range(iterations):
+            max_shift = int(np.log(1 + zmax) / delta_log_wl)
+            min_shift = int(np.log(1 + zmin) / delta_log_wl)
+            '''
+                Create a range of shifts based on correlation length.
+                Then, valid selects the shifts that correpsond to the current window
+                Then filter the correlation to only include valid shifts
+            '''
+            # all lags from 0 to pos because redshift 
+            shift_range = np.arange(-len(template_flux_log) + 1, len(template_flux_log))
+            # indicies where valid is true to filter correlation
+            valid = (shift_range >= min_shift) & (shift_range <= max_shift)
 
-        # Did this to get the best shift
-        shift_range = shift_range[valid]
+            corr = correlate(observed_flux_log, template_flux_log, mode='full')
+            corr = corr[valid]
+            shift_range = shift_range[valid]
 
-        # Find the best shift (MAX CORRELATION) (Didnt really change from simulation one)
-        best_idx = np.argmax(corr)
-        best_shift = shift_range[best_idx]
+            # Find the best shift (MAX CORRELATION) (Didnt really change from simulation one)
+            best_idx = np.argmax(corr)
+            shift = shift_range[best_idx]
+            z = np.exp(shift * delta_log_wl) - 1
+            corr_val = corr[best_idx]
 
-        #Convert best shift to redshift
-        best_z = np.exp(best_shift * delta_log_wl) - 1
+            '''
+                Taking 10 percent of the current range to narrow down the search.
+                This is a simple way to narrow the search range
+            '''
+            window = (zmax - zmin) / 10
+            zmin = max(z - window, 0)
+            zmax = z + window
+        # Update
+        if corr_val > best_corr_value:
+            best_corr_value = corr_val
+            best_z = z
+            best_template_index = idx
 
-        print(f"Iteration {iteration}: best_shift={best_shift}, best_z={best_z:.5f}, max_corr={corr[best_idx]:.3f}")
+        print(f"Template {idx} best_z: {z:.5f}, max_corr: {corr_val:.3f}")
 
-        '''
-            Taking 10 percent of the current range to narrow down the search.
-            This is a simple way to narrow the search range
-        '''
-        narrow = (z_max - z_min) / 10
-        z_min = max(best_z - narrow, 0)
-        z_max = best_z + narrow
-
-    return best_z
+    return best_z, best_template_index

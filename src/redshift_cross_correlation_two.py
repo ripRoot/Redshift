@@ -39,7 +39,7 @@ def normalize_spectrum(flux):
 
     # Subtracting the continuum leaves me with just the sharp lines. 
     flux_no_continuum = flux - continuum
-    return (flux_no_continuum - np.mean(flux_no_continuum)) / np.std(flux_no_continuum)
+    return flux_no_continuum#(flux_no_continuum - np.mean(flux_no_continuum)) / np.std(flux_no_continuum)
 
 def log_wavelength_grid(wl_min, wl_max, num_points):
     """ 
