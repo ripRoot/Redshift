@@ -5,8 +5,11 @@ This project estimates redshift by performing normalized cross-correlation betwe
 
 To be added + Known Issues:
 >Some SDSS templates fail to correlate correctly.
+
 >REALLY poor time complexity. Will look into improving. (again) 
+
 >No intergrated plotting yet.
+
 >Paper+Slides
 
 ### Requirements
