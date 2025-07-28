@@ -1,163 +1,100 @@
-import numpy as np
-from scipy.signal import medfilt
 from scipy.interpolate import interp1d
-from scipy.signal import correlate
+from scipy.ndimage import gaussian_filter1d
+import numpy as np
 import matplotlib.pyplot as plt
 
-def gaussian(w, w0, amp, sigma=3.0):
-    """    
-        Simple Gaussian line profile
-    """
-    return amp * np.exp(-(w - w0)**2 / (2.0 * sigma**2))
-
-def max_wavelength_for_redshift(wl_max, rest_lines):
-    """    
-        Calculate the maximum redshift based on the maximum wavelength and rest lines.
-        wl_max: Maximum wavelength in Angstroms.
-        rest_lines: Array of rest wavelengths of emission lines in Angstroms.
-    """
-    return (wl_max / np.min(rest_lines)) - 1
-
-def normalize_spectrum(flux):
-    """    
-        Normalize the spectrum by removing the continuum and standardizing.
-    """
-
-    N = len(flux)
-
-    kernel_fraction = 0.01 # 1% of the total length.. 
-    
-    # since our simulated len of flux is 7000 it will take the median of 70 points.
-    kernel_size = int(N * kernel_fraction)
-
-    # Make sure that the window size is odd, because without it no middle
-    if kernel_size % 2 == 0:
-        kernel_size += 1
-    
-    # Traces the curve, or 'shape' of the Spectrum... focusing on smoothing the hills instead of the peaks.
-    continuum = medfilt(flux, kernel_size)
-
-    # Subtracting the continuum leaves me with just the sharp lines. 
-    flux_no_continuum = flux - continuum
-    return (flux_no_continuum - np.mean(flux_no_continuum)) / np.std(flux_no_continuum)
-
-def log_wavelength_grid(wl_min, wl_max, num_points):
-    """ 
-        Creates a logarithmic wavelength grid.
-    """
-    return np.linspace(np.log(wl_min), np.log(wl_max), num_points)
-
-def resample_to_log_wavelength(wl_linear, flux_linear, log_wl_grid):
-    """    Resample the flux values to a logarithmic wavelength grid.
-        wl_linear: Linear wavelength grid.
-        flux_linear: Corresponding flux values.
-        log_wl_grid: Logarithmic wavelength grid to resample to.
-    """
-    interp_func = interp1d(np.log(wl_linear), flux_linear, bounds_error=False, fill_value=0)
-    return interp_func(log_wl_grid)
-
-def build_template(wl_linear, rest_lines, amps):
+def make_adaptive_z_grid(z_min=0.0, z_max=10.0):
     '''
-        Builds a template spectrum on a linear wavelength grid.
-        rest_lines: Wavelengths of the emission lines in Angstroms.
-        amps: Amplitudes of the emission lines.
+        Create a redshift grid that adjusts its resolution for better precision:
+        Fine resolution (0.0005) for z < 0.2
+        Moderate resolution (0.002) for 0.2 ≤ z < 1.0
+        Coarser (0.01) for z ≥ 1.0    
     '''
-    template_flux = np.zeros_like(wl_linear)
-    for w0, amp in zip(rest_lines, amps):
-        template_flux += gaussian(wl_linear, w0, amp)
-    return template_flux
+    low_z = np.arange(z_min, 0.2, 0.0005)
+    mid_z = np.arange(0.2, 1.0, 0.002)
+    high_z = np.arange(1.0, z_max, 0.01)
+    return np.concatenate([low_z, mid_z, high_z])
 
-def build_observed_flux(wl_linear, rest_lines, amps, z_true):
-    """    
-        Builds the observed flux spectrum based on the true redshift.
-    """
-    shifted_lines = rest_lines * (1 + z_true)
-    observed_flux = np.zeros_like(wl_linear)
-    for w0, amp in zip(shifted_lines, amps):
-        observed_flux += gaussian(wl_linear, w0, amp)
-    rng = np.random.default_rng(42)
-    observed_flux += 0.05 * rng.normal(size=observed_flux.size) # add noise
-    return observed_flux
+def log_wavelength_grid(wl_min, wl_max, num_points=30000):
+    '''
+        Generate a wavelength grid that is logarithmically spaced
+        Because redshift (z) stretches wavelengths multiplicatively: λ_obs = λ_emit × (1 + z)
+    '''
+    log_min = np.log10(wl_min)
+    log_max = np.log10(wl_max)
+    return np.logspace(log_min, log_max, num=num_points)
 
 
-def redshift_estimate_for_z(flux, wl, templates, z_min=0, z_max=10, num_points=20000, iterations=5):
-    """ 
-        Estimate the redshift for a given true redshift value.
-        wl_min: Minimum wavelength in Angstroms.
-        wl_max: Maximum wavelength in Angstroms.
-        num_points: Number of points in the wavelength grid.
+def high_pass(flux, sigma=100):
+    '''
+        Subtracts a smoothed version of the flux to remove broad continuum features (high-pass)
+        Useful for focusing on narrow absorption/emission features
+    '''
+    smoothed = gaussian_filter1d(flux, sigma=sigma, mode='nearest')
+    return flux - smoothed
 
-        Improvements:
-        Instead of spacing linearly, I have opted for a logarithmic grid.
-        This is because (linearly) redshift is multiplicative.. but in log space, it becomes additive.
-        Instead of a (stretch) on the spectrum.. it just becomes a shift.
-        So, a redshift of 1.0 becomes log(2.0) = 0.693, 
-        and a redshift of 10.0 becomes log(11.0) = 2.398.
-        Instead of (shift_and_interpolate) every time, (which is what was taking up most of the time)
-        Instead I only have to slide it accross the spectrum once. Better than reshaping each time. 
-        O(n) vs O(n^2)! Wayyy faster! better for bigger redshifts too. 
+def normalize_segment(flux):
+    '''
+        Normalize a flux segment to have zero mean and unit standard deviation
+        Ensures amplitude does not affect the cross-correlation score (only shape matters)
+    '''
+    flux = flux - np.nanmean(flux)
+    std = np.nanstd(flux)
+    return flux / std if std > 0 else flux
 
-
-        Now it can handle larger redshifts :)) (because it's less costly to calculate)
-        (and it's really fast I don't have to worry about it running slow on my little laptop)
-    """
-    # Convert observed spectrum to log space
-    log_wl_grid = log_wavelength_grid(np.min(wl), np.max(wl), num_points)
-    observed_flux_log = resample_to_log_wavelength(wl, flux, log_wl_grid)
-
-    # Don't normalize — instead subtract mean to remove DC offset for correlation
-    observed_flux_log -= np.mean(observed_flux_log)
-
-    delta_log_wl = log_wl_grid[1] - log_wl_grid[0]
-
-    best_corr_value = -np.inf
-    best_z = None
+# Main function to estimate redshift by cross-correlating observed spectra with template spectra
+def cross_correlate_redshift(observed_wavelength, observed_flux, template_spectra, z_min=0.0, z_max=10.0):
     best_template_index = -1
+    best_z = 0.0
+    best_score = -np.inf
 
-    for idx, (template_wl, template_flux) in enumerate(templates):
-        # Resample the template to the same log grid
-        template_flux_log = resample_to_log_wavelength(template_wl, template_flux, log_wl_grid)
-        template_flux_log -= np.mean(template_flux_log)  # Remove DC offset
+    # Determine how far red in λ we need to go, based on maximum redshift
+    template_max_wl = max(t[0][-1] for t in template_spectra)
+    wavelength_max_needed = template_max_wl * (1 + z_max) * 1.05  # 5% extra margin
+    grid_wavelength = log_wavelength_grid(3500, wavelength_max_needed, num_points=30000)
 
-        zmin = z_min
-        zmax = z_max
+    # Resample the observed spectrum onto the log-wavelength grid
+    obs_interp = interp1d(observed_wavelength, observed_flux, kind='linear',
+                          bounds_error=False, fill_value=np.nan)
+    obs_resampled = obs_interp(grid_wavelength)
+    obs_resampled_hp = high_pass(obs_resampled)
 
-        for _ in range(iterations):
-            max_shift = int(np.log(1 + zmax) / delta_log_wl)
-            min_shift = int(np.log(1 + zmin) / delta_log_wl)
-            '''
-                Create a range of shifts based on correlation length.
-                Then, valid selects the shifts that correpsond to the current window
-                Then filter the correlation to only include valid shifts
-            '''
-            # all lags from 0 to pos because redshift 
-            shift_range = np.arange(-len(template_flux_log) + 1, len(template_flux_log))
-            # indicies where valid is true to filter correlation
-            valid = (shift_range >= min_shift) & (shift_range <= max_shift)
+    for i, (template_wavelength, template_flux) in enumerate(template_spectra):
+        z_grid = make_adaptive_z_grid(z_min, z_max)
 
-            corr = correlate(observed_flux_log, template_flux_log, mode='full')
-            corr = corr[valid]
-            shift_range = shift_range[valid]
+        for z in z_grid:
+            # Apply redshift to the template: λ_obs = λ_emit × (1 + z)
+            shifted_wavelength = template_wavelength * (1 + z)
 
-            # Find the best shift (MAX CORRELATION) (Didnt really change from simulation one)
-            best_idx = np.argmax(corr)
-            shift = shift_range[best_idx]
-            z = np.exp(shift * delta_log_wl) - 1
-            corr_val = corr[best_idx]
+            # Resample the shifted template onto the same log grid
+            shifted_interp = interp1d(shifted_wavelength, template_flux, kind='linear',
+                                      bounds_error=False, fill_value=np.nan)
+            template_resampled = shifted_interp(grid_wavelength)
+            template_resampled_hp = high_pass(template_resampled)
 
-            '''
-                Taking 10 percent of the current range to narrow down the search.
-                This is a simple way to narrow the search range
-            '''
-            window = (zmax - zmin) / 10
-            zmin = max(z - window, 0)
-            zmax = z + window
-        # Update
-        if corr_val > best_corr_value:
-            best_corr_value = corr_val
-            best_z = z
-            best_template_index = idx
+            # Mask invalid (NaN) regions for fair correlation
+            valid = (~np.isnan(obs_resampled_hp)) & (~np.isnan(template_resampled_hp))
+            if np.sum(valid) < 100:  # Skip poorly overlapping templates
+                continue
 
-        print(f"Template {idx} best_z: {z:.5f}, max_corr: {corr_val:.3f}")
+            # Normalize both the raw and high-pass spectra to focus only on relative shape
+            obs_seg = normalize_segment(obs_resampled[valid])
+            temp_seg = normalize_segment(template_resampled[valid])
+            obs_hp = normalize_segment(obs_resampled_hp[valid])
+            temp_hp = normalize_segment(template_resampled_hp[valid])
 
-    return best_z, best_template_index
+            # Final correlation score:
+            # A blend of shape-based match (raw) and feature-based match (high-pass)
+            # This gives a balanced score between continuum shape and fine structure
+            score = 0.5 * np.sum(obs_seg * temp_seg) + 0.5 * np.sum(obs_hp * temp_hp)
+
+            if score > best_score:
+                best_score = score
+                best_z = z
+                best_template_index = i
+
+    print(f"\n>> Best overall match: Template {best_template_index:03d} with z = {best_z:.5f}, score = {best_score:.3f}")
+    plt.figure(figsize=(20,4))
+    plt.plot(observed_wavelength, observed_flux)
+    plt.plot(template_spectra[best_template_index][0], template_spectra[best_template_index][1])
+    return best_template_index, best_z, best_score

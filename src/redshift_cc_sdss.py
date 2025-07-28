@@ -2,7 +2,7 @@ from astropy.io import fits
 import numpy as np
 from astroquery.sdss import SDSS
 import os
-import redshift_cross_correlation as rcc
+import early_redshift_cross_correlation as rcc
 
 def get_spectrum(plate=2663, mjd=54234, fiberID=332):
     '''
@@ -44,76 +44,51 @@ def save_spectrum_to_data(spec, filename):
     spec.writeto(output_path, overwrite=True)
     return output_path
 
-def get_template_spectra(type_str):
-    template_dir = "../template_spectra/"
+
+def get_template_spectra(type_str, template_dir="../template_spectra/"):
+    """
+    Load selected template spectra by type, or all if 'ALL' is specified.
+    Valid options for type_str: 'STAR', 'GALAXY', 'QSO', or 'ALL'
+    """
+    type_str = type_str.upper()
     
-    # Define template number ranges by type
     type_ranges = {
         "STAR": range(0, 24),
         "GALAXY": range(24, 30),
         "QSO": range(30, 33),
+        "ALL": range(0, 33),
     }
     
     if type_str not in type_ranges:
         raise ValueError(f"Unknown type '{type_str}'. Valid options: {list(type_ranges.keys())}")
     
     selected_indices = type_ranges[type_str]
-    
-    # Exclude 5 anyway if you want (optional, remove if not needed)
-    selected_indices = [i for i in selected_indices]
-    
     template_spectra = []
-    
+
     for i in selected_indices:
         filename = f"spDR2-{i:03d}.fit"
         filepath = os.path.join(template_dir, filename)
         
-        with fits.open(filepath) as hdul:
-            data = hdul[0].data   
-            header = hdul[0].header
-            
-            # Adjust flux scale if needed
-            flux = data[0] 
-            coeff0 = header['COEFF0']
-            coeff1 = header['COEFF1']
-        
-            npix = flux.size
-            pixel_indices = np.arange(npix)
-            loglam = coeff0 + coeff1 * pixel_indices
-            wavelength = 10**loglam
-            
-            template_spectra.append([wavelength, flux])
-    
-    return template_spectra
+        if not os.path.exists(filepath):
+            print(f"Warning: Template file not found: {filename}")
+            continue
 
-def get_all_template_spectra(template_dir="../template_spectra/"):
-    """
-    Load all template spectra from the specified directory.
-    Assumes filenames are of the form 'spDR2-XXX.fit'.
-    """
-    template_spectra = []
+        try:
+            with fits.open(filepath) as hdul:
+                data = hdul[0].data   
+                header = hdul[0].header
 
-    for filename in sorted(os.listdir(template_dir)):
-        if filename.startswith("spDR2-") and filename.endswith(".fit"):
-            filepath = os.path.join(template_dir, filename)
+                flux = data[0]
+                coeff0 = header['COEFF0']
+                coeff1 = header['COEFF1']
 
-            try:
-                with fits.open(filepath) as hdul:
-                    data = hdul[0].data
-                    header = hdul[0].header
+                npix = flux.size
+                pixel_indices = np.arange(npix)
+                loglam = coeff0 + coeff1 * pixel_indices
+                wavelength = 10 ** loglam
 
-                    flux = data[0]
-                    coeff0 = header['COEFF0']
-                    coeff1 = header['COEFF1']
-
-                    npix = flux.size
-                    pixel_indices = np.arange(npix)
-                    loglam = coeff0 + coeff1 * pixel_indices
-                    wavelength = 10 ** loglam
-
-                    template_spectra.append([wavelength, flux])
-            except Exception as e:
-                print(f"Warning: Skipping {filename} due to error: {e}")
+                template_spectra.append([wavelength, flux])
+        except Exception as e:
+            print(f"Error loading {filename}: {e}")
 
     return template_spectra
-
