@@ -2,7 +2,6 @@ from astropy.io import fits
 import numpy as np
 from astroquery.sdss import SDSS
 import os
-import early_redshift_cross_correlation as rcc
 
 def get_spectrum(plate=2663, mjd=54234, fiberID=332):
     '''

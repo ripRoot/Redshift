@@ -29,9 +29,9 @@ Redshift/
 │ ├── redshift_cross_correlation.py # Core algorithm
 │ └── redshift_cc_sdss.py # SDSS spectrum loader + templates
 ├── spectra/ # Downloaded SDSS spectra
-├── template_spectra/ # Prebuilt emission-line templates
+├── template_spectra/ # Prebuilt emission-line templates from SDSS
 ├── notebooks/ # Jupyter notebooks for interactive testing
-│ └── redshift_demo.ipynb # Example notebook (if you have one)
+│ └── redshift_cross_correlation_simulation.ipynb # Example notebook 
 ├── README.md
 ├── requirements.txt
 └── LICENSE
