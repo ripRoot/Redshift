@@ -78,13 +78,9 @@ import redshift_cc_sdss as crs
 
 
 ###  Load Template Spectra
-You can load prebuilt emission lines in two ways:
+You can load prebuilt emission lines from the SDSS:
 ```python
-template_spectra = crs.get_all_template_spectra()
-```
-OR
-```python
-template_spectra = crs.get_template_spectra(type_str='GALAXY') # Options: GALAXY, QSO, STAR
+template_spectra = crs.get_template_spectra(type_str='GALAXY') # Options: GALAXY, QSO, STAR, ALL
 ```
 
 
@@ -93,11 +89,6 @@ From SDSS:
 ```python
 flux, wavelength = crs.get_spectrum(plate=266, mjd=51602, fiberID=9)
 ```
-Or, if you want a default spectrum:
-```python
-flux, wavelength = crs.get_spectrum()
-```
-
 
 ### Estimate Redshift
 Perform redshift estimation via cross-correlation:
