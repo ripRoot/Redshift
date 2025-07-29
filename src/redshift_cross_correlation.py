@@ -48,6 +48,9 @@ def cross_correlate_redshift(observed_wavelength, observed_flux, template_spectr
     best_z = 0.0
     best_score = -np.inf
 
+    # Keep a list of all decent candidates, in case we need to skip z ≈ 0
+    candidate_matches = []
+
     # Determine how far red in λ we need to go, based on maximum redshift
     template_max_wl = max(t[0][-1] for t in template_spectra)
     wavelength_max_needed = template_max_wl * (1 + z_max) * 1.05  # 5% extra margin
@@ -63,38 +66,42 @@ def cross_correlate_redshift(observed_wavelength, observed_flux, template_spectr
         z_grid = make_adaptive_z_grid(z_min, z_max)
 
         for z in z_grid:
-            # Apply redshift to the template: λ_obs = λ_emit × (1 + z)
             shifted_wavelength = template_wavelength * (1 + z)
-
-            # Resample the shifted template onto the same log grid
             shifted_interp = interp1d(shifted_wavelength, template_flux, kind='linear',
                                       bounds_error=False, fill_value=np.nan)
             template_resampled = shifted_interp(grid_wavelength)
             template_resampled_hp = high_pass(template_resampled)
 
-            # Mask invalid (NaN) regions for fair correlation
             valid = (~np.isnan(obs_resampled_hp)) & (~np.isnan(template_resampled_hp))
-            if np.sum(valid) < 100:  # Skip poorly overlapping templates
+            if np.sum(valid) < 100:
                 continue
 
-            # Normalize both the raw and high-pass spectra to focus only on relative shape
             obs_seg = normalize_segment(obs_resampled[valid])
             temp_seg = normalize_segment(template_resampled[valid])
             obs_hp = normalize_segment(obs_resampled_hp[valid])
             temp_hp = normalize_segment(template_resampled_hp[valid])
 
-            # Final correlation score:
-            # A blend of shape-based match (raw) and feature-based match (high-pass)
-            # This gives a balanced score between continuum shape and fine structure
             score = 0.5 * np.sum(obs_seg * temp_seg) + 0.5 * np.sum(obs_hp * temp_hp)
+            
+            #DEBUG PRINTTTTTTT
+            print(f"Template {i:03d} | z = {z:.5f} | score = {score:.3f}")
 
-            if score > best_score:
-                best_score = score
-                best_z = z
-                best_template_index = i
+            # Store all candidate matches for later filtering
+            candidate_matches.append((score, i, z))
+
+    # Sort candidates by score (descending)
+    candidate_matches.sort(reverse=True, key=lambda x: x[0])
+
+    # Pick the best redshift above a small threshold (e.g., z > 0.0001)
+    for score, i, z in candidate_matches:
+        if abs(z) > 0.0001:
+            best_template_index = i
+            best_z = z
+            best_score = score
+            break
+    else:
+        # fallback if everything is near zero
+        best_score, best_template_index, best_z = candidate_matches[0]
 
     print(f"\n>> Best overall match: Template {best_template_index:03d} with z = {best_z:.5f}, score = {best_score:.3f}")
-    plt.figure(figsize=(20,4))
-    plt.plot(observed_wavelength, observed_flux)
-    plt.plot(template_spectra[best_template_index][0], template_spectra[best_template_index][1])
     return best_template_index, best_z, best_score
