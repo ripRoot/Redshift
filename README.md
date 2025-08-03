@@ -12,6 +12,8 @@ To be added + Known Issues:
 
 >Paper+Slides
 
+>Add your failed attempts back Ripley.
+
 ### Requirements
 Before using the tool, clone the repo and install dependencies:
 ```bash
@@ -35,6 +37,12 @@ Redshift/
 ├── template_spectra/ # Prebuilt emission-line templates from SDSS
 ├── notebooks/ # Jupyter notebooks for interactive testing
 │ └── redshift_cross_correlation_simulation.ipynb # Example notebook 
+├── redshift_paper
+│ └──mappingthecosmos.tex
+│ ├── references.bib
+│ ├── image.png
+│ ├── image2.png
+│ └── image3.png
 ├── README.md
 ├── requirements.txt
 └── LICENSE
@@ -96,6 +104,33 @@ Perform redshift estimation via cross-correlation:
 template, redshift, correlation = mrc.cross_correlate_redshift(wavelength, flux, template_spectra)
 ```
 This returns the best-fit template, best-fit redshift, and the correlation score. 
+
+
+
+## Compiling the Paper
+The redshift_paper/ folder contains the LaTeX source and associated files for the paper describing this project:
+>mappingthecosmos.tex — main LaTeX file
+
+>references.bib — bibliography file
+
+>image.png, image2.png, image3.png — figures used in the paper
+
+### Compilation Instructions
+
+To compile the PDF from source, run the following commands from the redshift_paper/ directory:
+```bash
+pdflatex mappingthecosmos.tex
+```
+```bash
+bibtex mappingthecosmos
+```
+```bash
+pdflatex mappingthecosmos.tex
+```
+```bash
+pdflatex mappingthecosmos.tex
+```
+This will generate the PDF with properly resolved citations, references, and images.
 
 ## Resources
 
