@@ -11,7 +11,6 @@ def get_spectrum(plate=2663, mjd=54234, fiberID=332):
     spectra = SDSS.get_spectra(plate=plate, mjd=mjd, fiberID=fiberID)
     
     if spectra:
-        print("Spectrum retrieved!")
         spectrum = get_flux_and_wl(spectra)
         return spectrum
     else:
@@ -19,20 +18,27 @@ def get_spectrum(plate=2663, mjd=54234, fiberID=332):
         return None
 
 def get_flux_and_wl(spectra):
-
     output_dir = save_spectrum_to_data(spectra[0], "sdss_spectrum.fits")
     hdulist = fits.open(output_dir)
     
+    # Get flux and wavelength from HDU 1
     data = hdulist[1].data
-    header0 = hdulist[0].header
-    sdss_z = header0.get('Z', None)
-
-    #change that badboy to linear
-    wavelength = 10**data['loglam']
+    wavelength = 10 ** data['loglam']
     flux = data['flux']
-    hdulist.close()
+    
+    # Get redshift and class from HDU 2
+    try:
+        z_data = hdulist[2].data
+        sdss_z = z_data['Z'][0]
+        sdss_z_err = z_data['Z_ERR'][0]
+        sdss_class = z_data['CLASS'][0]
+        zwarning = z_data['ZWARNING'][0]
+    except Exception as e:
+        sdss_z = None
 
-    return flux, wavelength
+    hdulist.close()
+    
+    return flux, wavelength, sdss_z
 
 def save_spectrum_to_data(spec, filename):
     this_dir = os.path.dirname(__file__)

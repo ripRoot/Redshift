@@ -84,7 +84,7 @@ def cross_correlate_redshift(observed_wavelength, observed_flux, template_spectr
             score = 0.5 * np.sum(obs_seg * temp_seg) + 0.5 * np.sum(obs_hp * temp_hp)
             
             #DEBUG PRINTTTTTTT
-            print(f"Template {i:03d} | z = {z:.5f} | score = {score:.3f}")
+            #print(f"Template {i:03d} | z = {z:.5f} | score = {score:.3f}")
 
             # Store all candidate matches for later filtering
             candidate_matches.append((score, i, z))
@@ -94,14 +94,9 @@ def cross_correlate_redshift(observed_wavelength, observed_flux, template_spectr
 
     # Pick the best redshift above a small threshold (e.g., z > 0.0001)
     for score, i, z in candidate_matches:
-        if abs(z) > 0.0001:
-            best_template_index = i
-            best_z = z
-            best_score = score
-            break
-    else:
-        # fallback if everything is near zero
-        best_score, best_template_index, best_z = candidate_matches[0]
+        best_template_index = i
+        best_z = z
+        best_score = score
 
     print(f"\n>> Best overall match: Template {best_template_index:03d} with z = {best_z:.5f}, score = {best_score:.3f}")
     return best_template_index, best_z, best_score
