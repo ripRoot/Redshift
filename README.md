@@ -10,9 +10,6 @@ To be added + Known Issues:
 
 >No intergrated plotting yet.
 
->Paper+Slides
-
->Add your failed attempts back Ripley.
 
 ### Requirements
 Before using the tool, clone the repo and install dependencies:
