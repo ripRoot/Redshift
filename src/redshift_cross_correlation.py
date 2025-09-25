@@ -3,7 +3,7 @@ from scipy.ndimage import gaussian_filter1d
 import numpy as np
 import matplotlib.pyplot as plt
 
-def make_adaptive_z_grid(z_min=0.0, z_max=10.0):
+def make_adaptive_z_grid(z_min=0.0, z_max=5.0):
     '''
         Create a redshift grid that adjusts its resolution for better precision:
         Fine resolution (0.0005) for z < 0.2
@@ -25,7 +25,7 @@ def log_wavelength_grid(wl_min, wl_max, num_points=30000):
     return np.logspace(log_min, log_max, num=num_points)
 
 
-def high_pass(flux, sigma=100):
+def high_pass(flux, sigma=300):
     '''
         Subtracts a smoothed version of the flux to remove broad continuum features (high-pass)
         Useful for focusing on narrow absorption/emission features
@@ -43,7 +43,7 @@ def normalize_segment(flux):
     return flux / std if std > 0 else flux
 
 # Main function to estimate redshift by cross-correlating observed spectra with template spectra
-def cross_correlate_redshift(observed_wavelength, observed_flux, template_spectra, z_min=0.0, z_max=10.0):
+def cross_correlate_redshift(observed_wavelength, observed_flux, template_spectra, z_min=0.0, z_max=5.0):
     best_template_index = -1
     best_z = 0.0
     best_score = -np.inf
@@ -72,16 +72,17 @@ def cross_correlate_redshift(observed_wavelength, observed_flux, template_spectr
             template_resampled = shifted_interp(grid_wavelength)
             template_resampled_hp = high_pass(template_resampled)
 
+            
             valid = (~np.isnan(obs_resampled_hp)) & (~np.isnan(template_resampled_hp))
             if np.sum(valid) < 100:
                 continue
-
+            
             obs_seg = normalize_segment(obs_resampled[valid])
             temp_seg = normalize_segment(template_resampled[valid])
             obs_hp = normalize_segment(obs_resampled_hp[valid])
             temp_hp = normalize_segment(template_resampled_hp[valid])
 
-            score = 0.5 * np.sum(obs_seg * temp_seg) + 0.5 * np.sum(obs_hp * temp_hp)
+            score = 0.3 * np.sum(obs_seg * temp_seg) + 0.7 * np.sum(obs_hp * temp_hp)
             
             #DEBUG PRINTTTTTTT
             #print(f"Template {i:03d} | z = {z:.5f} | score = {score:.3f}")
@@ -93,10 +94,9 @@ def cross_correlate_redshift(observed_wavelength, observed_flux, template_spectr
     candidate_matches.sort(reverse=True, key=lambda x: x[0])
 
     # Pick the best redshift above a small threshold (e.g., z > 0.0001)
-    for score, i, z in candidate_matches:
-        best_template_index = i
-        best_z = z
-        best_score = score
+    # After sorting
+    best_score, best_template_index, best_z = candidate_matches[0]
+
 
     print(f"\n>> Best overall match: Template {best_template_index:03d} with z = {best_z:.5f}, score = {best_score:.3f}")
     return best_template_index, best_z, best_score
